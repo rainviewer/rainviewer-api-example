@@ -83,6 +83,13 @@
      * @param preloadOnly
      */
     function changeRadarPosition(position, preloadOnly) {
+        while (position >= timestamps.length) {
+            position -= timestamps.length;
+        }
+        while (position < 0) {
+            position += timestamps.length;
+        }
+
         var currentTimestamp = timestamps[animationPosition];
         var nextTimestamp = timestamps[position];
 
@@ -107,13 +114,6 @@
      */
     function showFrame(nextPosition) {
         var preloadingDirection = nextPosition - animationPosition > 0 ? 1 : -1;
-
-        if (nextPosition >= timestamps.length) {
-            nextPosition = 0;
-        }
-        while (nextPosition < 0) {
-            nextPosition = timestamps.length - 1;
-        }
 
         changeRadarPosition(nextPosition);
 
