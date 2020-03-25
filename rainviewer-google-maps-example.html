@@ -1,13 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>RainViewer API Example</title>
+    <title>RainViewer API Example for Google Maps</title>
 
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.5.1/dist/leaflet.css"/>
-    <script src="https://unpkg.com/leaflet@1.5.1/dist/leaflet.js"></script>
     <style type="text/css">
         li {
             list-style: none;
@@ -28,13 +26,26 @@
 <div id="mapid" style="position: absolute; top: 80px; left: 0; bottom: 0; right: 0;"></div>
 
 <script>
+    var map;
+    function initMap() {
+        map = new google.maps.Map(document.getElementById('mapid'), {
+          center: {lat: 40.633333, lng: -73.716667},
+          zoom: 7
+        });
 
-    var map = L.map('mapid').setView([40.633333, -73.716667], 7);
+        /**
+         * Load actual radar animation frames timestamps from RainViewer API
+         */
+        var apiRequest = new XMLHttpRequest();
+        apiRequest.open("GET", "https://api.rainviewer.com/public/maps.json", true);
+        apiRequest.onload = function(e) {
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attributions: 'Map data © <a href="https://openstreetmap.org">OpenStreetMap</a> contributors'
-    }).addTo(map);
-
+            // save available timestamps and show the latest frame: "-1" means "timestamp.lenght - 1"
+            timestamps = JSON.parse(apiRequest.response);
+            showFrame(-1);
+        };
+        apiRequest.send();
+    }
 
     /**
      * RainViewer radar animation part
@@ -47,32 +58,20 @@
     var animationTimer = false;
 
     /**
-     * Load actual radar animation frames timestamps from RainViewer API
-     */
-    var apiRequest = new XMLHttpRequest();
-    apiRequest.open("GET", "https://api.rainviewer.com/public/maps.json", true);
-    apiRequest.onload = function(e) {
-
-        // save available timestamps and show the latest frame: "-1" means "timestamp.lenght - 1"
-        timestamps = JSON.parse(apiRequest.response);
-        showFrame(-1);
-    };
-    apiRequest.send();
-
-    /**
      * Animation functions
      * @param ts
      */
     function addLayer(ts) {
         if (!radarLayers[ts]) {
-            radarLayers[ts] = new L.TileLayer('https://tilecache.rainviewer.com/v2/radar/' + ts + '/256/{z}/{x}/{y}/2/1_1.png', {
-                tileSize: 256,
-                opacity: 0.001,
-                zIndex: ts
+            radarLayers[ts] = new google.maps.ImageMapType({
+              getTileUrl: function(coord, zoom) {
+                return ['https://tilecache.rainviewer.com/v2/radar/' + ts + '/256/',
+                    zoom, '/', coord.x, '/', coord.y, '/2/1_1.png'].join('');
+              },
+              tileSize: new google.maps.Size(256, 256),
+              opacity: 0.001
             });
-        }
-        if (!map.hasLayer(radarLayers[ts])) {
-            map.addLayer(radarLayers[ts]);
+            map.overlayMapTypes.push(radarLayers[ts]);
         }
     }
 
@@ -148,6 +147,8 @@
         }
     }
 </script>
+
+<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY_HERE&callback=initMap" async defer></script>
 
 </body>
 </html>

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RainViewer API Example for Mapbox</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1" />
+    <script src="https://api.tiles.mapbox.com/mapbox-gl-js/v1.3.1/mapbox-gl.js"></script>
+    <link
+      href="https://api.tiles.mapbox.com/mapbox-gl-js/v1.3.1/mapbox-gl.css"
+      rel="stylesheet"
+    />
+  </head>
+
+  <body style="margin: 0px; padding: 0px;">
+    <div
+      id="map"
+      style="position: absolute; top: 0px; bottom: 0px; width: 100%;"
+    ></div>
+    <script>
+      mapboxgl.accessToken = "YOUR_API_KEY_HERE";
+      const map = new mapboxgl.Map({
+        container: "map",
+        style: "mapbox://styles/mapbox/dark-v10",
+        zoom: 6,
+        center: [-100, 47]
+      });
+
+      window.map = map;
+
+      map.on("load", () => {
+        fetch("https://api.rainviewer.com/public/maps.json")
+          .then(res => res.json())
+          .then(timestamps => timestamps.sort())
+          .then(timestamps => {
+            timestamps.forEach(timestamp => {
+              map.addLayer({
+                id: `rainviewer_${timestamp}`,
+                type: "raster",
+                source: {
+                  type: "raster",
+                  tiles: [
+                    `https://tilecache.rainviewer.com/v2/radar/${timestamp}/256/{z}/{x}/{y}/2/1_1.png`
+                  ],
+                  tileSize: 256
+                },
+                layout: { visibility: "none" },
+                minzoom: 0,
+                maxzoom: 12
+              });
+            });
+
+            let i = 0;
+            const interval = setInterval(() => {
+              if (i > timestamps.length - 1) {
+                clearInterval(interval);
+                return;
+              } else {
+                timestamps.forEach((timestamp, index) => {
+                  map.setLayoutProperty(
+                    `rainviewer_${timestamp}`,
+                    "visibility",
+                    index === i || index === i - 1 ? "visible" : "none"
+                  );
+                });
+                if (i - 1 >= 0) {
+                  const timestamp = timestamps[i - 1];
+                  let opacity = 1;
+                  setTimeout(() => {
+                    const i2 = setInterval(() => {
+                      if (opacity <= 0) {
+                        return clearInterval(i2);
+                      }
+                      map.setPaintProperty(
+                        `rainviewer_${timestamp}`,
+                        "raster-opacity",
+                        opacity
+                      );
+                      opacity -= 0.1;
+                    }, 50);
+                  }, 400);
+                }
+                i += 1;
+              }
+            }, 2000);
+          })
+          .catch(console.error);
+      });
+    </script>
+  </body>
+</html>
