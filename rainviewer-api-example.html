@@ -28,51 +28,62 @@
 <div id="mapid" style="position: absolute; top: 80px; left: 0; bottom: 0; right: 0;"></div>
 
 <script>
-
     var map = L.map('mapid').setView([40.633333, -73.716667], 7);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attributions: 'Map data © <a href="https://openstreetmap.org">OpenStreetMap</a> contributors'
     }).addTo(map);
 
-
     /**
      * RainViewer radar animation part
      * @type {number[]}
      */
-    var timestamps = [];
+    var apiData = {};
+    var mapFrames = [];
+    var lastPastFramePosition = -1;
     var radarLayers = [];
 
     var animationPosition = 0;
     var animationTimer = false;
 
     /**
-     * Load actual radar animation frames timestamps from RainViewer API
+     * Load all the available maps frames from RainViewer API
      */
     var apiRequest = new XMLHttpRequest();
-    apiRequest.open("GET", "https://api.rainviewer.com/public/maps.json", true);
+    apiRequest.open("GET", "https://api.rainviewer.com/public/weather-maps.json", true);
     apiRequest.onload = function(e) {
 
-        // save available timestamps and show the latest frame: "-1" means "timestamp.lenght - 1"
-        timestamps = JSON.parse(apiRequest.response);
-        showFrame(-1);
+        // Save the API response
+        apiData = JSON.parse(apiRequest.response);
+
+        // Rebuild frames to show
+        if (apiData && apiData.radar && apiData.radar.past) {
+            mapFrames = apiData.radar.past;
+            if (apiData.radar.nowcast) {
+                mapFrames = mapFrames.concat(apiData.radar.nowcast);
+            }
+
+            // show the last "past" frame
+            lastPastFramePosition = apiData.radar.past.length - 1;
+            showFrame(lastPastFramePosition);
+        }
     };
     apiRequest.send();
 
     /**
      * Animation functions
-     * @param ts
+     * @param path - Path to the XYZ tile
      */
-    function addLayer(ts) {
-        if (!radarLayers[ts]) {
-            radarLayers[ts] = new L.TileLayer('https://tilecache.rainviewer.com/v2/radar/' + ts + '/256/{z}/{x}/{y}/2/1_1.png', {
+    function addLayer(frame) {
+        if (!radarLayers[frame.path]) {
+            radarLayers[frame.path] = new L.TileLayer(apiData.host + frame.path + '/256/{z}/{x}/{y}/2/1_1_1_0.png', {
                 tileSize: 256,
                 opacity: 0.001,
-                zIndex: ts
+                zIndex: frame.time
             });
         }
-        if (!map.hasLayer(radarLayers[ts])) {
-            map.addLayer(radarLayers[ts]);
+        if (!map.hasLayer(radarLayers[frame.path])) {
+            map.addLayer(radarLayers[frame.path]);
         }
     }
 
@@ -83,17 +94,17 @@
      * @param preloadOnly
      */
     function changeRadarPosition(position, preloadOnly) {
-        while (position >= timestamps.length) {
-            position -= timestamps.length;
+        while (position >= mapFrames.length) {
+            position -= mapFrames.length;
         }
         while (position < 0) {
-            position += timestamps.length;
+            position += mapFrames.length;
         }
 
-        var currentTimestamp = timestamps[animationPosition];
-        var nextTimestamp = timestamps[position];
+        var currentFrame = mapFrames[animationPosition];
+        var nextFrame = mapFrames[position];
 
-        addLayer(nextTimestamp);
+        addLayer(nextFrame);
 
         if (preloadOnly) {
             return;
@@ -101,12 +112,12 @@
 
         animationPosition = position;
 
-        if (radarLayers[currentTimestamp]) {
-            radarLayers[currentTimestamp].setOpacity(0);
+        if (radarLayers[currentFrame.path]) {
+            radarLayers[currentFrame.path].setOpacity(0);
         }
-        radarLayers[nextTimestamp].setOpacity(100);
+        radarLayers[nextFrame.path].setOpacity(100);
 
-        document.getElementById("timestamp").innerHTML = (new Date(nextTimestamp * 1000)).toString();
+        document.getElementById("timestamp").innerHTML = (new Date(nextFrame.time * 1000)).toString();
     }
 
     /**
