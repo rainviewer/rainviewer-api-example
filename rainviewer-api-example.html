@@ -4,9 +4,9 @@
     <title>RainViewer API Example</title>
 
     <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
 
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"/>
+    <link href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" rel="stylesheet"/>
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
     <style type="text/css">
         li {
@@ -67,6 +67,21 @@
     var animationPosition = 0;
     var animationTimer = false;
 
+    var loadingTilesCount = 0;
+    var loadedTilesCount = 0;
+
+    function startLoadingTile() {
+        loadingTilesCount++;    
+    }
+    function finishLoadingTile() {
+        // Delayed increase loaded count to prevent changing the layer before 
+        // it will be replaced by next
+        setTimeout(function() { loadedTilesCount++; }, 250);
+    }
+    function isTilesLoading() {
+        return loadingTilesCount > loadedTilesCount;
+    }
+
     /**
      * Load all the available maps frames from RainViewer API
      */
@@ -98,7 +113,7 @@
             mapFrames = api.satellite.infrared;
 
             lastPastFramePosition = api.satellite.infrared.length - 1;
-            showFrame(lastPastFramePosition);
+            showFrame(lastPastFramePosition, true);
         }
         else if (api.radar && api.radar.past) {
             mapFrames = api.radar.past;
@@ -108,7 +123,7 @@
 
             // show the last "past" frame
             lastPastFramePosition = api.radar.past.length - 1;
-            showFrame(lastPastFramePosition);
+            showFrame(lastPastFramePosition, true);
         }
     }
 
@@ -122,11 +137,19 @@
             var smooth = optionKind == 'satellite' ? 0 : optionSmoothData;
             var snow = optionKind == 'satellite' ? 0 : optionSnowColors;
 
-            radarLayers[frame.path] = new L.TileLayer(apiData.host + frame.path + '/' + optionTileSize + '/{z}/{x}/{y}/' + colorScheme + '/' + smooth + '_' + snow + '.png', {
+            var source = new L.TileLayer(apiData.host + frame.path + '/' + optionTileSize + '/{z}/{x}/{y}/' + colorScheme + '/' + smooth + '_' + snow + '.png', {
                 tileSize: 256,
-                opacity: 0.001,
+                opacity: 0.01,
                 zIndex: frame.time
             });
+
+            // Track layer loading state to not display the overlay 
+            // before it will completelly loads
+            source.on('loading', startLoadingTile);
+            source.on('load', finishLoadingTile); 
+            source.on('remove', finishLoadingTile);
+
+            radarLayers[frame.path] = source;
         }
         if (!map.hasLayer(radarLayers[frame.path])) {
             map.addLayer(radarLayers[frame.path]);
@@ -138,8 +161,9 @@
      * If preloadOnly parameter is set to true, the frame layer only adds for the tiles preloading purpose
      * @param position
      * @param preloadOnly
+     * @param force - display layer immediatelly
      */
-    function changeRadarPosition(position, preloadOnly) {
+    function changeRadarPosition(position, preloadOnly, force) {
         while (position >= mapFrames.length) {
             position -= mapFrames.length;
         }
@@ -152,7 +176,9 @@
 
         addLayer(nextFrame);
 
-        if (preloadOnly) {
+        // Quit if this call is for preloading only by design
+        // or some times still loading in background
+        if (preloadOnly || (isTilesLoading() && !force)) {
             return;
         }
 
@@ -172,10 +198,10 @@
     /**
      * Check avialability and show particular frame position from the timestamps list
      */
-    function showFrame(nextPosition) {
+    function showFrame(nextPosition, force) {
         var preloadingDirection = nextPosition - animationPosition > 0 ? 1 : -1;
 
-        changeRadarPosition(nextPosition);
+        changeRadarPosition(nextPosition, false, force);
 
         // preload next next frame (typically, +1 frame)
         // if don't do that, the animation will be blinking at the first loop
@@ -232,12 +258,12 @@
         switch (e.which || e.keyCode) {
             case 37: // left
                 stop();
-                showFrame(animationPosition - 1);
+                showFrame(animationPosition - 1, true);
                 break;
 
             case 39: // right
                 stop();
-                showFrame(animationPosition + 1);
+                showFrame(animationPosition + 1, true);
                 break;
 
             default:
