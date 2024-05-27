@@ -42,7 +42,11 @@
 <div id="mapid" style="position: absolute; top: 80px; left: 0; bottom: 0; right: 0;"></div>
 
 <script>
-    var map = L.map('mapid').setView([48.8566, 2.3522], 6);
+    const urlParams = new URL(window.location.toLocaleString()).searchParams;
+    const lat = urlParams.has('lat') ? parseFloat(urlParams.get('lat')) : 48.8566;
+    const lon = urlParams.has('lon') ? parseFloat(urlParams.get('lon')) : 2.3522;
+    const zoom = urlParams.has('zoom') ? parseInt(urlParams.get('zoom')) : 6;
+    var map = L.map('mapid').setView([lat, lon], zoom);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attributions: 'Map data © <a href="https://openstreetmap.org">OpenStreetMap</a> contributors'
