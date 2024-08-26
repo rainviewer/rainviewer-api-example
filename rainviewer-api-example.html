@@ -6,25 +6,23 @@
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport">
 
-    <link href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" rel="stylesheet"/>
-    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
-    <style type="text/css">
-        li {
-            list-style: none;
-            display: inline-block;
-        }
-    </style>
+    <link href="https://unpkg.com/leaflet/dist/leaflet.css" rel="stylesheet"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
 </head>
 <body>
 
-<ul style="text-align:center; position: absolute;top: 0; left: 0; right: 0; height: 50px;">
-    <li><input type="radio" name="kind" checked="checked" onchange="setKind('radar')">Radar (Past + Future) <input type="radio" name="kind" onchange="setKind('satellite')">Infrared Satellite</li>
+<div style="text-align:center">
+    <input type="radio" name="kind" checked="checked" onchange="setKind('radar')">Radar (Past + Future) <input type="radio" name="kind" onchange="setKind('satellite')">Infrared Satellite
 
-    <li><input type="button" onclick="stop(); showFrame(animationPosition - 1); return;" value="&lt;" /></li>
-    <li><input type="button" onclick="playStop();" value="Play / Stop" /></li>
-    <li><input type="button" onclick="stop(); showFrame(animationPosition + 1); return;" value="&gt;" /></li>
+    <span style="white-space: nowrap">
+        <input type="button" onclick="stop(); showFrame(animationPosition - 1); return;" value="&lt;" />
+        <input type="button" onclick="playStop();" value="Play / Stop" />
+        <input type="button" onclick="stop(); showFrame(animationPosition + 1); return;" value="&gt;" />
+    </span>
 
-    <li><select id="colors" onchange="setColors(); return;">
+    <select id="colors" onchange="setColors(); return;">
         <option value="0">Black and White Values</option>
         <option value="1">Original</option>
         <option value="2" selected="selected">Universal Blue</option>
@@ -34,19 +32,27 @@
         <option value="6">NEXRAD Level-III</option>
         <option value="7">RAINBOW @ SELEX-SI</option>
         <option value="8">Dark Sky</option>
-    </select></li>
-</ul>
+    </select>
+</div>
 
 <div id="timestamp" style="text-align:center; position: absolute;top: 50px; left: 0; right: 0; height: 80px;">FRAME TIME</div>
 
 <div id="mapid" style="position: absolute; top: 80px; left: 0; bottom: 0; right: 0;"></div>
 
 <script>
-    var map = L.map('mapid').setView([48.8566, 2.3522], 6);
+    const urlParams = new URL(window.location.toLocaleString()).searchParams;
+    const lat = urlParams.has('lat') ? parseFloat(urlParams.get('lat')) : 48.8566;
+    const lon = urlParams.has('lon') ? parseFloat(urlParams.get('lon')) : 2.3522;
+    const zoom = urlParams.has('zoom') ? parseInt(urlParams.get('zoom')) : 6;
+    var map = L.map('mapid').setView([lat, lon], zoom);
+    if (urlParams.has('lat')) {
+      var marker = L.marker([lat, lon]).addTo(map);
+    }
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attributions: 'Map data © <a href="https://openstreetmap.org">OpenStreetMap</a> contributors'
     }).addTo(map);
+    L.Control.geocoder().addTo(map);
 
     /**
      * RainViewer radar animation part
