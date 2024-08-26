@@ -45,6 +45,9 @@
     const lon = urlParams.has('lon') ? parseFloat(urlParams.get('lon')) : 2.3522;
     const zoom = urlParams.has('zoom') ? parseInt(urlParams.get('zoom')) : 6;
     var map = L.map('mapid').setView([lat, lon], zoom);
+    if (urlParams.has('lat')) {
+      var marker = L.marker([lat, lon]).addTo(map);
+    }
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attributions: 'Map data © <a href="https://openstreetmap.org">OpenStreetMap</a> contributors'
