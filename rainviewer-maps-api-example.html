@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Rain Viewer Maps API Example</title>
+
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+
+    <link href="https://unpkg.com/leaflet/dist/leaflet.css" rel="stylesheet" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <style type="text/css">
+        body,
+        ul {
+            margin: 0;
+        }
+
+        li {
+            list-style: none;
+            display: block;
+            margin: 0;
+            padding: 12px 20px;
+        }
+
+        .with-api-key {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <ul
+        style="position: absolute; top: 0; left: 0; width: 100%; background-color: white; z-index: 1; text-align: center;">
+        <li>
+            API Key (if none, public API will be used): <input type="text" id="apikey" value="" /><input type="button"
+                onclick="applyApiKey(document.getElementById('apikey').value); return;" value="Apply" />
+        </li>
+
+        <li>
+            <input type="radio" name="kind" checked="checked" onchange="setKind('radar')">Radar (Past + Future)
+            <input type="radio" name="kind" onchange="setKind('satellite')">Infrared Satellite
+            <span class="with-api-key">
+                <input type="radio" name="kind" onchange="setKind('satprecip')">Global Precipitation (Past + Future)
+                <input type="radio" name="kind" onchange="setKind('nwpprecip')">Precipitation (24h future) 
+                <input type="radio" name="kind" onchange="setKind('nwptemp')">Temperature (24h future)
+            </span>
+        </li>
+
+        <li>
+            Color Scheme: <select id="colors" onchange="setColors(); return;">
+                <option value="0">0: COLOR_SCHEME_RAW_DBZ_VALUES </option>
+                <option value="1">1: COLOR_SCHEME_ORIGINAL</option>
+                <option value="2" selected>2: COLOR_SCHEME_UNIVERSAL_BLUE</option>
+                <option value="3">3: COLOR_SCHEME_TITAN</option>
+                <option value="4">4: COLOR_SCHEME_TWC</option>
+                <option value="5">5: COLOR_SCHEME_METEORED</option>
+                <option value="6">6: COLOR_SCHEME_NEXRAD</option>
+                <option value="7">7: COLOR_SCHEME_RAINBOW</option>
+                <option value="8">8: COLOR_SCHEME_DARK_SKY</option>
+                <option value="255">255: COLOR_SCHEME_FULL_RAW</option>
+            </select>
+            WebP File Format: <input type="checkbox" id="webp" onchange="setWebp(); return;" />
+        </li>
+
+        <li>
+            <input type="button" onclick="stop(); showFrame(animationPosition - 1); return;" value="&lt;" />
+            <input type="button" onclick="playStop();" value="Play / Stop" />
+            <input type="button" onclick="stop(); showFrame(animationPosition + 1); return;" value="&gt;" />
+        </li>
+
+        <li id="timestamp" style="text-align:center; ">FRAME TIME</li>
+    </ul>
+
+    <div id="mapid" style="position: absolute; top: 0; left: 0; bottom: 0; right: 0; z-index: 0;"></div>
+
+    <script>
+        var map = L.map('mapid').setView([48.8566, 2.3522], 6);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attributions: 'Map data © <a href="https://openstreetmap.org">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        /**
+         * RainViewer radar animation part
+         * @type {number[]}
+         */
+        var apiData = {};
+
+        var mapFrames = [];
+        var lastPastFramePosition = -1;
+        var radarLayers = [];
+
+        var host = "https://tilecache.rainviewer.com";
+        var apiUrl = "https://api.rainviewer.com/public/weather-maps.json";
+        var optionKind = 'radar'; // can be 'radar', 'satellite', 'satprecip', 'nwpprecip', 'nwptemp'
+
+        var optionTileSize = 512; // can be 256 or 512.
+        var optionExtension = 'png'; // can be 'png' or 'webp'
+        var optionColorScheme = 2; // from 0 to 8. Check the https://rainviewer.com/api/color-schemes.html for additional information
+        var optionSmoothData = 1; // 0 - not smooth, 1 - smooth
+        var optionSnowColors = 1; // 0 - do not show snow colors, 1 - show snow colors
+
+        var animationPosition = 0;
+        var animationTimer = false;
+
+        var loadingTilesCount = 0;
+        var loadedTilesCount = 0;
+
+        var apiKey = localStorage.getItem('apiKey');
+        if (apiKey) {
+            document.getElementById('apikey').value = apiKey;
+        }
+
+        function applyApiKey(key) {
+            apiKey = key;
+            localStorage.setItem('apiKey', apiKey);
+        }
+
+        function startLoadingTile() {
+            loadingTilesCount++;
+        }
+        function finishLoadingTile() {
+            // Delayed increase loaded count to prevent changing the layer before 
+            // it will be replaced by next
+            setTimeout(function () { loadedTilesCount++; }, 250);
+        }
+        function isTilesLoading() {
+            return loadingTilesCount > loadedTilesCount;
+        }
+
+        /**
+         * Load all the available maps frames from RainViewer API
+         */
+        function doApiRequest() {
+            var apiRequest = new XMLHttpRequest();
+            apiRequest.open("GET", apiUrl, true);
+            if (apiKey) {
+                apiRequest.setRequestHeader("x-api-key", apiKey);
+            }
+            apiRequest.onload = function (e) {
+                var result = JSON.parse(apiRequest.response);
+               
+                // unhide all layers possible with API key
+                if (apiKey) {
+                    document.getElementsByClassName('with-api-key')[0].style.display = 'block';
+                    apiData = result.data;
+                } else {
+                    apiData = result;
+                }
+                initialize(apiData, optionKind);
+            };
+            apiRequest.send();
+        }
+        doApiRequest();
+
+        /**
+         * Initialize internal data from the API response and options
+         */
+        function initialize(api, kind) {
+
+            console.log(api);
+            // remove all already added tiled layers
+            for (var i in radarLayers) {
+                map.removeLayer(radarLayers[i]);
+            }
+            mapFrames = [];
+            radarLayers = [];
+            animationPosition = 0;
+
+            if (!api) {
+                return;
+            }
+            if (apiKey) {
+                mapFrames = api[kind].past;
+                if (api[kind].future) {
+                    mapFrames = mapFrames.concat(api[kind].future);
+                }
+
+                // show the last "past" frame
+                lastPastFramePosition = api[kind].past.length - 1;
+                showFrame(lastPastFramePosition, true);
+            } else {
+                if (kind == 'satellite' && api.satellite && api.satellite.infrared) {
+                    mapFrames = api.satellite.infrared;
+
+                    lastPastFramePosition = api.satellite.infrared.length - 1;
+                    showFrame(lastPastFramePosition, true);
+                }
+                else if (api.radar && api.radar.past) {
+                    mapFrames = api.radar.past;
+                    if (api.radar.nowcast) {
+                        mapFrames = mapFrames.concat(api.radar.nowcast);
+                    }
+
+                    // show the last "past" frame
+                    lastPastFramePosition = api.radar.past.length - 1;
+                    showFrame(lastPastFramePosition, true);
+                }
+            }
+        }
+
+        /**
+         * Animation functions
+         * @param path - Path to the XYZ tile
+         */
+        function addLayer(frame) {
+            if (!radarLayers[frame.path]) {
+                var colorScheme = optionKind == 'satellite' || optionKind == 'nwptemp' ? (optionColorScheme == 255 ? 255 : 0) : optionColorScheme;
+                var smooth = optionKind == 'satellite' ? 0 : optionSmoothData;
+                var snow = optionKind == 'satellite' ? 0 : optionSnowColors;
+
+                var framePath = frame.path;
+                if (apiKey) {
+                    framePath = '/private/' + optionKind + '/' + framePath;
+                }
+                var source = new L.tileLayer.customHeader(host + framePath + '/' + optionTileSize + '/{z}/{x}/{y}/' + colorScheme + '/' + smooth + '_' + snow + '.' + optionExtension,
+                    {
+                        tileSize: 256,
+                        opacity: 0.01,
+                        zIndex: frame.time,
+                        maxZoom: 10
+                    });
+
+                // Track layer loading state to not display the overlay 
+                // before it will completelly loads
+                source.on('loading', startLoadingTile);
+                source.on('load', finishLoadingTile);
+                source.on('remove', finishLoadingTile);
+
+                radarLayers[frame.path] = source;
+            }
+            if (!map.hasLayer(radarLayers[frame.path])) {
+                map.addLayer(radarLayers[frame.path]);
+            }
+        }
+
+        /**
+         * Display particular frame of animation for the @position
+         * If preloadOnly parameter is set to true, the frame layer only adds for the tiles preloading purpose
+         * @param position
+         * @param preloadOnly
+         * @param force - display layer immediatelly
+         */
+        function changeRadarPosition(position, preloadOnly, force) {
+            while (position >= mapFrames.length) {
+                position -= mapFrames.length;
+            }
+            while (position < 0) {
+                position += mapFrames.length;
+            }
+
+            var currentFrame = mapFrames[animationPosition];
+            var nextFrame = mapFrames[position];
+
+            addLayer(nextFrame);
+
+            // Quit if this call is for preloading only by design
+            // or some times still loading in background
+            if (preloadOnly || (isTilesLoading() && !force)) {
+                return;
+            }
+
+            animationPosition = position;
+
+            if (radarLayers[currentFrame.path]) {
+                radarLayers[currentFrame.path].setOpacity(0);
+            }
+            radarLayers[nextFrame.path].setOpacity(100);
+
+
+            var pastOrForecast = nextFrame.time > Date.now() / 1000 ? 'FORECAST' : 'PAST';
+
+            document.getElementById("timestamp").innerHTML = pastOrForecast + ': ' + (new Date(nextFrame.time * 1000)).toString();
+        }
+
+        /**
+         * Check avialability and show particular frame position from the timestamps list
+         */
+        function showFrame(nextPosition, force) {
+            var preloadingDirection = nextPosition - animationPosition > 0 ? 1 : -1;
+
+            changeRadarPosition(nextPosition, false, force);
+
+            // preload next next frame (typically, +1 frame)
+            // if don't do that, the animation will be blinking at the first loop
+            changeRadarPosition(nextPosition + preloadingDirection, true);
+        }
+
+        /**
+         * Stop the animation
+         * Check if the animation timeout is set and clear it.
+         */
+        function stop() {
+            if (animationTimer) {
+                clearTimeout(animationTimer);
+                animationTimer = false;
+                return true;
+            }
+            return false;
+        }
+
+        function play() {
+            showFrame(animationPosition + 1);
+
+            // Main animation driver. Run this function every 500 ms
+            animationTimer = setTimeout(play, 500);
+        }
+
+        function playStop() {
+            if (!stop()) {
+                play();
+            }
+        }
+
+        /**
+         * Change map options
+         */
+        function setKind(kind) {
+            optionKind = kind;
+            initialize(apiData, optionKind);
+        }
+
+
+        function setColors() {
+            var e = document.getElementById('colors');
+            optionColorScheme = e.options[e.selectedIndex].value;
+            initialize(apiData, optionKind);
+        }
+
+        function setWebp() {
+            optionExtension = document.getElementById('webp').checked ? 'webp' : 'png';
+            initialize(apiData, optionKind);
+        }
+
+        function applyApiKey(key) {
+            if (key) {
+                apiUrl = "https://api.rainviewer.com/private/maps?interval=21600&step=300&nowcast_interval=7200&allow_custom_step=1&nwp_layers=1";
+                apiKey = key.trim();
+            }
+            doApiRequest();
+        }
+
+
+        /**
+         * Handle arrow keys for navigation between next \ prev frames
+         */
+        document.onkeydown = function (e) {
+            e = e || window.event;
+            switch (e.which || e.keyCode) {
+                case 37: // left
+                    stop();
+                    showFrame(animationPosition - 1, true);
+                    break;
+
+                case 39: // right
+                    stop();
+                    showFrame(animationPosition + 1, true);
+                    break;
+
+                default:
+                    return; // exit this handler for other keys
+            }
+            e.preventDefault();
+            return false;
+        }
+
+
+        L.TileLayer.CustomHeader = L.TileLayer.extend({
+            initialize: function (url, options) {
+                L.TileLayer.prototype.initialize.call(this, url, options);
+            },
+            createTile: function (coords, done) {
+                var tile = L.TileLayer.prototype.createTile.call(this, coords, done);
+                var url = tile.src;
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', url, true);
+                xhr.responseType = 'blob';
+                if (apiKey) {
+                    xhr.setRequestHeader('x-api-key', apiKey);
+                }
+                xhr.onerror = function () {
+                    done("Tile loading error", tile);
+                };
+                xhr.onload = function () {
+                    if (this.status === 200) {
+                        var urlCreator = window.URL || window.webkitURL;
+                        var imageUrl = urlCreator.createObjectURL(this.response);
+                        tile.src = imageUrl;
+                    }
+                    done(null, tile);
+                };
+                xhr.send();
+                return tile;
+            }
+        });
+
+        L.tileLayer.customHeader = function (url, options) {
+            return new L.TileLayer.CustomHeader(url, options);
+        };
+    </script>
+
+</body>
+
+</html>

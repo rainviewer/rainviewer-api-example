@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Rain Viewer Forecast API Example</title>
+
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+
+    <style type="text/css">
+        body,
+        ul {
+            margin: 0;
+        }
+
+        li {
+            list-style: none;
+            display: block;
+            margin: 0;
+            padding: 12px 20px;
+        }
+
+        .with-api-key {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <ul>
+        <li>
+            API Key (Mandatory): <input type="text" id="apikey" value="" /><input type="button"
+                onclick="applyApiKey(document.getElementById('apikey').value); return;" value="Apply" />
+        </li>
+
+        <li>
+            Latitude: <input type="text" id="latitude" value="45.46" />
+            Longitude: <input type="text" id="longitude" value="9.18" />
+            <input type="button"
+                onclick="displayForecast([document.getElementById('latitude').value, document.getElementById('longitude').value]); return;"
+                value="Display Forecast" />
+        </li>
+
+    </ul>
+
+    <div id="forecast"></div>
+
+    <script>
+        var apiKey = localStorage.getItem('apiKey');
+        if (apiKey) {
+            document.getElementById('apikey').value = apiKey;
+        }
+
+        function applyApiKey(key) {
+            apiKey = key;
+            localStorage.setItem('apiKey', apiKey);
+        }
+
+        function displayForecast(latitude, longitude) {
+        
+            if (apiKey == null) {
+                alert('Please provide an API key');
+                return;
+            }
+
+            var url = 'https://api.rainviewer.com/private/forecast/' + latitude + ',' + longitude + '?full=1';
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', url, true);
+            xhr.setRequestHeader('x-api-key', apiKey);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState == 4) {
+                    if (xhr.status == 200) {
+                        var data = JSON.parse(xhr.responseText);
+                        displayForecastData(data.data);
+                    } else if (xhr.status == 401) {
+                        alert('Unauthorized: Please check your API key.');
+                    } else if (xhr.status == 403) {
+                        alert('Forbidden: You do not have access to this resource.');
+                    } else if (xhr.status == 404) {
+                        alert('Not Found: The requested resource could not be found.');
+                    } else {
+                        alert('Error: ' + xhr.status + ' - ' + xhr.statusText);
+                    }
+                }
+            };
+            xhr.onerror = function () {
+                alert('Request failed. Please check your network connection.');
+            };
+            xhr.send();
+        }
+
+        function displayForecastData(data) {
+            var forecast = document.getElementById('forecast');
+            forecast.innerHTML = '';
+
+            console.log(data);
+
+            var location = data.location ? `Location: ${data.location.latitude}, ${data.location.longitude}` : '';
+            var timezone = data.timezone ? `Timezone: ${data.timezone}` : '';
+            var sunrise = data.sunrise ? `Sunrise: ${new Date(data.sunrise * 1000).toLocaleTimeString()}` : '';
+            var sunset = data.sunset ? `Sunset: ${new Date(data.sunset * 1000).toLocaleTimeString()}` : '';
+            var coverage = data.radars && data.radars.coverage ? `Radar Coverage: ${data.radars.coverage}%` : '';
+
+            forecast.innerHTML += `<div>${location}</div>`;
+            forecast.innerHTML += `<div>${timezone}</div>`;
+            forecast.innerHTML += `<div>${sunrise}</div>`;
+            forecast.innerHTML += `<div>${sunset}</div>`;
+            forecast.innerHTML += `<div>${coverage}</div>`;
+
+            if (data.currently) {
+                var currently = data.currently;
+                forecast.innerHTML += `<h3>Currently</h3>`;
+                forecast.innerHTML += `<div>Time: ${new Date(currently.time * 1000).toLocaleTimeString()}</div>`;
+                forecast.innerHTML += `<div>Icon: ${currently.icon}</div>`;
+                forecast.innerHTML += `<div>Temperature: ${currently.temperature}°C</div>`;
+                forecast.innerHTML += `<div>Precipitation Probability: ${currently.precipitation.probability}%</div>`;
+                forecast.innerHTML += `<div>Precipitation Rate: ${currently.precipitation.rate} mm/h</div>`;
+                forecast.innerHTML += `<div>Humidity: ${currently.humidity}%</div>`;
+                forecast.innerHTML += `<div>Pressure: ${currently.pressure} hPa</div>`;
+                forecast.innerHTML += `<div>Wind: ${currently.wind.speed} km/h, Direction: ${currently.wind.direction}°</div>`;
+                forecast.innerHTML += `<div>Feels Like: ${currently.temp.feels_like}°C</div>`;
+                forecast.innerHTML += `<div>Dew Point: ${currently.temp.dew_point}°C</div>`;
+                forecast.innerHTML += `<div>Sky Coverage: ${currently.sky.coverage}%</div>`;
+                forecast.innerHTML += `<div>Visibility: ${currently.sky.visibility} km</div>`;
+                forecast.innerHTML += `<div>UV Index: ${currently.sun.uvi}</div>`;
+                forecast.innerHTML += `<div>Solar Radiation: ${currently.sun.radiation} W/m²</div>`;
+            }
+
+            if (data.aqi) {
+                var aqi = data.aqi;
+                forecast.innerHTML += `<h3>Air Quality Index</h3>`;
+                forecast.innerHTML += `<div>Time: ${new Date(aqi.time * 1000).toLocaleTimeString()}</div>`;
+                forecast.innerHTML += `<div>AQI: ${aqi.aqi}</div>`;
+                forecast.innerHTML += `<div>Category: ${aqi.category}</div>`;
+                forecast.innerHTML += `<div>Dominant Pollutant: ${aqi.dominant}</div>`;
+                forecast.innerHTML += `<div>Pollutants:</div>`;
+                aqi.pollutants.forEach(pollutant => {
+                    forecast.innerHTML += `<div>Type: ${pollutant.type}, Name: ${pollutant.name}, Value (PPB): ${pollutant.valuePPB}, Value (µg/m³): ${pollutant.valueUGM3}, AQI: ${pollutant.aqi}, Category: ${pollutant.category}</div>`;
+                });
+            }
+
+            if (data.alerts && data.alerts.length > 0) {
+                forecast.innerHTML += `<h3>Alerts</h3>`;
+                data.alerts.forEach(alert => {
+                    forecast.innerHTML += `<div>Severity: ${alert.severity}, Category: ${alert.category}, Type: ${alert.type}, Starts: ${new Date(alert.starts * 1000).toLocaleTimeString()}, Ends: ${new Date(alert.ends * 1000).toLocaleTimeString()}, ID: ${alert.id}</div>`;
+                });
+            }
+
+            if (data.nowcast) {
+                var nowcast = data.nowcast;
+                forecast.innerHTML += `<h3>Nowcast</h3>`;
+                forecast.innerHTML += `<div>Icon: ${nowcast.icon}</div>`;
+                forecast.innerHTML += `<div>Precipitation Starts: ${new Date(nowcast.precipitation.starts * 1000).toLocaleTimeString()}</div>`;
+                forecast.innerHTML += `<div>Precipitation Ends: ${new Date(nowcast.precipitation.ends * 1000).toLocaleTimeString()}</div>`;
+                forecast.innerHTML += `<div>Max Rainrate: ${nowcast.max_rainrate} mm/h</div>`;
+                nowcast.data.forEach(item => {
+                    forecast.innerHTML += `<div>Time: ${new Date(item.time * 1000).toLocaleTimeString()}, Precipitation: ${item.precipitation} mm/h</div>`;
+                });
+            }
+
+            if (data.hourly && data.hourly.data.length > 0) {
+                forecast.innerHTML += `<h3>Hourly Forecast</h3>`;
+                data.hourly.data.forEach(hour => {
+                    forecast.innerHTML += `<div>Time: ${new Date(hour.time * 1000).toLocaleTimeString()}, Icon: ${hour.icon}, Temperature: ${hour.temperature}°C, Precipitation Probability: ${hour.precipitation.probability}%, Precipitation Rate: ${hour.precipitation.rate} mm/h, Humidity: ${hour.humidity}%, Pressure: ${hour.pressure} hPa, Wind: ${hour.wind.speed} km/h, Direction: ${hour.wind.direction}°, Feels Like: ${hour.temp.feels_like}°C, Dew Point: ${hour.temp.dew_point}°C, Sky Coverage: ${hour.sky.coverage}%, Visibility: ${hour.sky.visibility} km, UV Index: ${hour.sun.uvi}, Solar Radiation: ${hour.sun.radiation} W/m²</div>`;
+                });
+            }
+
+            if (data.daily && data.daily.data.length > 0) {
+                forecast.innerHTML += `<h3>Daily Forecast</h3>`;
+                data.daily.data.forEach(day => {
+                    forecast.innerHTML += `<div>Day Time: ${new Date(day.day.time * 1000).toLocaleTimeString()}, Icon: ${day.day.icon}, Temperature: ${day.day.temperature}°C, Precipitation Probability: ${day.day.precipitation.probability}%, Precipitation Rate: ${day.day.precipitation.rate} mm/h, Humidity: ${day.day.humidity}%, Pressure: ${day.day.pressure} hPa, Wind: ${day.day.wind.speed} km/h, Direction: ${day.day.wind.direction}°, Feels Like: ${day.day.temp.feels_like}°C, Dew Point: ${day.day.temp.dew_point}°C, Sky Coverage: ${day.day.sky.coverage}%, Visibility: ${day.day.sky.visibility} km, UV Index: ${day.day.sun.uvi}, Solar Radiation: ${day.day.sun.radiation} W/m²</div>`;
+                    forecast.innerHTML += `<div>Night Time: ${new Date(day.night.time * 1000).toLocaleTimeString()}, Icon: ${day.night.icon}, Temperature: ${day.night.temperature}°C, Precipitation Probability: ${day.night.precipitation.probability}%, Precipitation Rate: ${day.night.precipitation.rate} mm/h, Humidity: ${day.night.humidity}%, Pressure: ${day.night.pressure} hPa, Wind: ${day.night.wind.speed} km/h, Direction: ${day.night.wind.direction}°, Feels Like: ${day.night.temp.feels_like}°C, Dew Point: ${day.night.temp.dew_point}°C, Sky Coverage: ${day.night.sky.coverage}%, Visibility: ${day.night.sky.visibility} km, UV Index: ${day.night.sun.uvi}, Solar Radiation: ${day.night.sun.radiation} W/m²</div>`;
+                });
+            }
+
+            if (data.nearest && data.nearest.precipitation && data.nearest.precipitation.data.length > 0) {
+                forecast.innerHTML += `<h3>Nearest Precipitation</h3>`;
+                data.nearest.precipitation.data.forEach(nearest => {
+                    forecast.innerHTML += `<div>Time: ${new Date(nearest.time * 1000).toLocaleTimeString()}, Precipitation: ${nearest.precipitation} mm/h, Location: (${nearest.location.latitude}, ${nearest.location.longitude ?? 0}), Distance: ${nearest.position.distance ?? 0} m, Direction: ${nearest.position.direction ?? 0}°, Movement Direction: ${nearest.movement.direction ?? 0}°, Movement Speed: ${nearest.movement.speed ?? 0} km/h</div>`;
+                });
+            }
+        }
+
+    </script>
+
+</body>
+
+</html>
