@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Rain Viewer Weather Maps API - MapLibre Example (Personal Use)</title>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <link href="https://unpkg.com/maplibre-gl/dist/maplibre-gl.css" rel="stylesheet"/>
+    <script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
+    <style>
+        body { margin: 0; font-family: sans-serif; }
+        .controls {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            background: white;
+            z-index: 1000;
+            box-sizing: border-box;
+        }
+        .title {
+            font-weight: 400;
+            color: #333;
+        }
+        #timestamp {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+        .buttons {
+            display: flex;
+            gap: 8px;
+        }
+        .buttons button {
+            width: 36px;
+            height: 36px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #fff;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .buttons button:hover {
+            background: #f5f5f5;
+        }
+        #map {
+            position: absolute;
+            top: 50px;
+            left: 0;
+            bottom: 0;
+            right: 0;
+        }
+    </style>
+</head>
+<body>
+
+<div class="controls">
+    <span class="title">Weather Radar</span>
+    <span id="timestamp">Loading...</span>
+    <div class="buttons">
+        <button onclick="stop(); showFrame(animationPosition - 1);">‹</button>
+        <button id="playBtn" onclick="playStop();">▶</button>
+        <button onclick="stop(); showFrame(animationPosition + 1);">›</button>
+    </div>
+</div>
+
+<div id="map"></div>
+
+<script>
+// === CONFIGURATION ===
+var TILE_SIZE = window.devicePixelRatio >= 2 ? 512 : 256;
+var RADAR_OPACITY = 0.8;
+var ANIMATION_DELAY_MS = 500;
+var API_URL = "https://api.rainviewer.com/public/weather-maps.json";
+
+// === STATE ===
+var apiData = {};
+var mapFrames = [];
+var animationPosition = 0;
+var animationTimer = false;
+var currentLayerId = null;
+var isLoading = false;
+var loadedPositions = new Set();
+
+// === MAP SETUP ===
+var map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://maps.rainviewer.com/styles/m2/style.json',
+    center: [2.3522, 48.8566],
+    zoom: 4,
+    maxZoom: 12
+});
+
+map.addControl(new maplibregl.NavigationControl());
+
+// === UTILITIES ===
+function wrapPosition(position) {
+    while (position >= mapFrames.length) {
+        position -= mapFrames.length;
+    }
+    while (position < 0) {
+        position += mapFrames.length;
+    }
+    return position;
+}
+
+function formatTime(timestamp) {
+    return new Date(timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// === LAYER MANAGEMENT ===
+function createRadarSource(position, frame) {
+    var sourceId = 'radar-' + position;
+    map.addSource(sourceId, {
+        type: 'raster',
+        tiles: [apiData.host + frame.path + '/' + TILE_SIZE + '/{z}/{x}/{y}/2/1_1.png'],
+        tileSize: 256,
+        maxzoom: 7
+    });
+    return sourceId;
+}
+
+function createRadarLayer(sourceId, layerId) {
+    map.addLayer({
+        id: layerId,
+        type: 'raster',
+        source: sourceId,
+        paint: {
+            'raster-opacity': 0.001,
+            'raster-opacity-transition': { duration: 0, delay: 0 },
+            'raster-fade-duration': 0
+        }
+    });
+}
+
+function clearLayerCache() {
+    stop();
+    loadedPositions.forEach(function(pos) {
+        if (pos !== animationPosition) {
+            var layerId = 'radar-layer-' + pos;
+            var sourceId = 'radar-' + pos;
+            if (map.getLayer(layerId)) map.removeLayer(layerId);
+            if (map.getSource(sourceId)) map.removeSource(sourceId);
+        }
+    });
+    loadedPositions.clear();
+    loadedPositions.add(animationPosition);
+}
+
+// === ANIMATION CONTROL ===
+function stop() {
+    if (animationTimer) {
+        clearTimeout(animationTimer);
+        animationTimer = false;
+        document.getElementById("playBtn").innerHTML = "▶";
+        return true;
+    }
+    return false;
+}
+
+function play() {
+    animationTimer = true;
+    document.getElementById("playBtn").innerHTML = "⏸";
+    showFrame(animationPosition + 1);
+}
+
+function playStop() {
+    if (!stop()) {
+        play();
+    }
+}
+
+// === DISPLAY ===
+function updateTimestamp(frame) {
+    document.getElementById("timestamp").innerHTML = formatTime(frame.time);
+}
+
+function showFrame(position) {
+    if (isLoading) return;
+
+    position = wrapPosition(position);
+    var frame = mapFrames[position];
+
+    updateTimestamp(frame);
+
+    var newSourceId = 'radar-' + position;
+    var newLayerId = 'radar-layer-' + position;
+    var oldLayerId = currentLayerId;
+
+    if (loadedPositions.has(position)) {
+        if (oldLayerId && oldLayerId !== newLayerId && map.getLayer(oldLayerId)) {
+            map.setPaintProperty(oldLayerId, 'raster-opacity', 0);
+        }
+        map.setPaintProperty(newLayerId, 'raster-opacity', RADAR_OPACITY);
+        currentLayerId = newLayerId;
+        animationPosition = position;
+
+        if (animationTimer) {
+            animationTimer = setTimeout(play, ANIMATION_DELAY_MS);
+        }
+        return;
+    }
+
+    isLoading = true;
+
+    createRadarSource(position, frame);
+    createRadarLayer(newSourceId, newLayerId);
+
+    currentLayerId = newLayerId;
+
+    function onSourceData(e) {
+        if (e.sourceId === newSourceId && map.isSourceLoaded(newSourceId)) {
+            map.off('sourcedata', onSourceData);
+
+            map.once('idle', function() {
+                map.setPaintProperty(newLayerId, 'raster-opacity', RADAR_OPACITY);
+                if (oldLayerId && oldLayerId !== newLayerId && map.getLayer(oldLayerId)) {
+                    map.setPaintProperty(oldLayerId, 'raster-opacity', 0);
+                }
+                loadedPositions.add(position);
+                animationPosition = position;
+                isLoading = false;
+
+                if (animationTimer) {
+                    animationTimer = setTimeout(play, ANIMATION_DELAY_MS);
+                }
+            });
+        }
+    }
+
+    map.on('sourcedata', onSourceData);
+}
+
+// === INITIALIZATION ===
+function initialize(api) {
+    if (!api || !api.radar || !api.radar.past) {
+        return;
+    }
+
+    mapFrames = api.radar.past;
+    showFrame(mapFrames.length - 1);
+}
+
+function loadApiData() {
+    var apiRequest = new XMLHttpRequest();
+    apiRequest.open("GET", API_URL, true);
+    apiRequest.onload = function() {
+        apiData = JSON.parse(apiRequest.response);
+        initialize(apiData);
+    };
+    apiRequest.send();
+}
+
+map.on('movestart', clearLayerCache);
+map.on('load', loadApiData);
+</script>
+
+</body>
+</html>
